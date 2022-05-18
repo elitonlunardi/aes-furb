@@ -1,9 +1,7 @@
 ﻿using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
-using System.Numerics;
 using System.Text;
 
 namespace AES
@@ -12,11 +10,15 @@ namespace AES
     {
         public static void Main(string[] args)
         {
+            var conteudoUsuario = "DESENVOLVIMENTO!";
+            var entradaUsuario = new ConteudoCifrar(Encoding.ASCII.GetBytes(conteudoUsuario));
+            
+            LogarMatrizEstado("", entradaUsuario.Blocos[0]);
+            
             // var chaveEntrada = "20,1,94,33,199,0,48,9,31,94,112,40,59,30,100,248";
             
             // "ABCDEFGHIJKLMNOP";
             var chaveEntrada = "65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80";
-            
             var chave = new Chave(chaveEntrada);
             var roundKey00 = chave.ObterTodasPalavras();
             
@@ -24,11 +26,22 @@ namespace AES
             LogarRoundKey(roundKey00.ToList());
             Console.WriteLine("");
             
-            GerarRoundKeys(roundKey00.ToList());
+            var keySchedule = GerarRoundKeys(roundKey00.ToList());
+            var matrizEstadoInicial = entradaUsuario.Blocos;
+
+            var primeiroXor = matrizEstadoInicial[0];
+            var primeiraRoundKey = keySchedule[0];
+
+            var matrizEstadoResultado = XorBytes(primeiroXor, primeiraRoundKey);
+            LogarMatrizEstado("\n --- Xor" ,matrizEstadoResultado);
+            matrizEstadoResultado = SubBytes(matrizEstadoResultado);
+            LogarMatrizEstado("\n --- SubBytes" ,matrizEstadoResultado);
+            matrizEstadoResultado = ShiftRows(matrizEstadoResultado);
+            LogarMatrizEstado("\n --- ShiftRows", matrizEstadoResultado);
         }
 
 
-        private static void GerarRoundKeys(IList<byte[]> expansaoChave)
+        private static IList<List<byte[]>> GerarRoundKeys(IList<byte[]> expansaoChave)
         {
             IList<List<byte[]>> keySchedule = new List<List<byte[]>>(11)
             {
@@ -55,6 +68,8 @@ namespace AES
                 Console.WriteLine($"---------------------Fim da round Key #{indexRoundKeyQueEstaSendoGerada}--------------------------------");
                 keySchedule.Add(roundKeyNova);
             }
+
+            return keySchedule;
         }
 
         private static byte[] GerarPrimeiraPalavraRoundKey(byte[] ultimaWordRoundKeyAnterior, byte[] primeiraWordRoundKeyAnterior, int indexRoundKeyQueEstaSendoGerada)
@@ -83,7 +98,7 @@ namespace AES
         }
 
 
-        private static byte[]  RotWord(byte[] word)
+        private static byte[] RotWord(byte[] word)
         {
             var resultado = new byte[4];
             word.CopyTo(resultado,0);
@@ -96,10 +111,36 @@ namespace AES
             resultado[word.Length - 1] = primeiroByte;
             return resultado;
         }
+
+        private static byte[,] ShiftRows(byte[,] matrizEstado)
+        {
+            byte[,] matrizEstadoResultado = (byte[,])matrizEstado.Clone();
+
+            for (int i = 1; i < matrizEstadoResultado.GetLength(0); i++)
+            {
+                var linhaAtual = new byte[4];
+                for (int j = 0; j < linhaAtual.Length; j++)
+                {
+                    linhaAtual[j] = matrizEstadoResultado[i, j];
+                }
+
+                int quantidadeShifts = i;
+                for (int j = quantidadeShifts; j > 0; j--)
+                {
+                    linhaAtual = RotWord(linhaAtual);
+                }
+                
+                for (int k = 0; k < linhaAtual.Length; k++)
+                {
+                    matrizEstadoResultado[i,k] = linhaAtual[k];
+                }
+            }
+            
+            return matrizEstadoResultado;
+        }
         
         private static byte[] SubWord(byte[] rotWord)
         {
-            Console.WriteLine($"Entrada SubWord - HEX: {Convert.ToHexString(rotWord)}");
             Span<byte> subWord = new byte[4];
             for (int i = 0; i < rotWord.Length; i++)
             {
@@ -107,16 +148,33 @@ namespace AES
                 Span<byte> spanByteRotWord = new byte[]{ byteIteradoDaRotWord };
                 var byteHexa = Convert.ToHexString(spanByteRotWord);
 
-                var intQuatroBitsMaisSignificativos = int.Parse(byteHexa[0].ToString(), NumberStyles.HexNumber);
-                var intQuatroBitsMenosSignificativos = int.Parse(byteHexa[1].ToString(), NumberStyles.HexNumber);
+                (var intQuatroBitsMaisSignificativos, var intQuatroBitsMenosSignificativos) = ObterBitMaisEMenosSignificativo(byteHexa);
 
                 var byteParaSubstituir = Constantes.TableSBox[intQuatroBitsMaisSignificativos, intQuatroBitsMenosSignificativos];
                 subWord[i] = byteParaSubstituir;
             }
 
             var subWordArray = subWord.ToArray();
-            Console.WriteLine($"Saída SubWord - HEX: {Convert.ToHexString(subWordArray)}");
             return subWordArray;
+        }
+        
+        private static byte[,] SubBytes(byte[,] matrizEstado)
+        {
+            var matrizEstadoResultante = new byte[4,4];
+            for (int i = 0; i < matrizEstado.GetLength(0); i++)
+            {
+                for (int j = 0; j < matrizEstado.GetLength(1); j++)
+                {
+                    var byteIteradoDaMatrizEstado = matrizEstado[i,j];
+                    Span<byte> spanByteDaMatrizEstado = new byte[]{ byteIteradoDaMatrizEstado };
+                    var byteFormatoHexa = Convert.ToHexString(spanByteDaMatrizEstado);
+                    (var intQuatroBitsMaisSignificativos, var intQuatroBitsMenosSignificativos) = ObterBitMaisEMenosSignificativo(byteFormatoHexa);
+                    var byteParaSubstituir = Constantes.TableSBox[intQuatroBitsMaisSignificativos, intQuatroBitsMenosSignificativos];
+
+                    matrizEstadoResultante[i, j] = byteParaSubstituir;
+                }
+            }
+            return matrizEstadoResultante;
         }
 
         private static byte[] ObterRoundConstant(int roundKeyQueEstaSendoGerada)
@@ -144,6 +202,34 @@ namespace AES
             return resultado;
         }
 
+        private static byte[,] XorBytes(byte[,] matrizEstado, IList<byte[]> roundKeyAtual)
+        {
+            var matrizEstadoResultado = new byte[4,4];
+            for (var i = 0; i < matrizEstado.GetLength(0); i++)
+            {
+                for (int j = 0; j < matrizEstado.GetLength(1); j++)
+                {
+                    var wordMomentoKeySchedule = roundKeyAtual[i];
+                    var primeiroElemento = matrizEstado[j, i];
+                    var segundoElemento = wordMomentoKeySchedule[j];
+                    var byteDoMomento = (byte)(primeiroElemento ^ segundoElemento);
+                    
+                    matrizEstadoResultado[j, i] = byteDoMomento;
+                }
+            }
+
+            return matrizEstadoResultado;
+        }
+
+        private static (int BitMaisSignificativo, int BitMenosSignificativo ) ObterBitMaisEMenosSignificativo(string byteFormatoHexa)
+        {
+            var intQuatroBitsMaisSignificativos = int.Parse(byteFormatoHexa[0].ToString(), NumberStyles.HexNumber);
+            var intQuatroBitsMenosSignificativos = int.Parse(byteFormatoHexa[1].ToString(), NumberStyles.HexNumber);
+
+            return (intQuatroBitsMaisSignificativos, intQuatroBitsMenosSignificativos);
+        }
+     
+
         private static void LogarRoundKey(List<byte[]> roundKey)
         {
             for (int i = 0; i < 4; i++)
@@ -151,6 +237,19 @@ namespace AES
                 for (int j = 0; j < 4; j++)
                 {
                     Console.Write($" {Convert.ToHexString(new []{roundKey[j][i]})}");
+                }
+                Console.WriteLine("");
+            }
+        }
+        
+        private static void LogarMatrizEstado(string headerLog, byte[,] matriz)
+        {
+            Console.WriteLine(headerLog);
+            for (int i = 0; i < 4; i++)
+            {
+                for (int j = 0; j < 4; j++)
+                {
+                    Console.Write($" {Convert.ToHexString(new []{matriz[i,j]})}");
                 }
                 Console.WriteLine("");
             }
