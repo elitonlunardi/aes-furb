@@ -1,7 +1,9 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Linq;
+using System.Net;
 using System.Text;
 
 namespace AES
@@ -29,23 +31,7 @@ namespace AES
             var keySchedule = GerarRoundKeys(roundKey00.ToList());
             var matrizEstadoInicial = entradaUsuario.Blocos;
 
-            var primeiroXor = matrizEstadoInicial[0];
-            var primeiraRoundKey = keySchedule[0];
-
-            var matrizEstadoResultado = XorBytes(primeiroXor, primeiraRoundKey);
-            LogarMatrizEstado("\n --- Xor" ,matrizEstadoResultado);
-            
-            matrizEstadoResultado = SubBytes(matrizEstadoResultado);
-            LogarMatrizEstado("\n --- SubBytes" ,matrizEstadoResultado);
-            
-            matrizEstadoResultado = ShiftRows(matrizEstadoResultado);
-            LogarMatrizEstado("\n --- ShiftRows", matrizEstadoResultado);
-            
-            matrizEstadoResultado = MixColumns(matrizEstadoResultado);
-            LogarMatrizEstado("\n --- MixColumns", matrizEstadoResultado);
-            
-            matrizEstadoResultado = XorBytes(matrizEstadoResultado, keySchedule[1]);
-            LogarMatrizEstado("\n --- XorBytes MixColums + RoundKey", matrizEstadoResultado);
+            Criptografar(matrizEstadoInicial, keySchedule);
         }
 
 
@@ -72,11 +58,12 @@ namespace AES
                 roundKeyNova.Add(XorBytes(roundKeyAnterior[1], roundKeyNova[0]));
                 roundKeyNova.Add(XorBytes(roundKeyAnterior[2], roundKeyNova[1]));
                 roundKeyNova.Add(XorBytes(roundKeyAnterior[3], roundKeyNova[2]));
+                
                 LogarRoundKey(roundKeyNova);
-                Console.WriteLine($"---------------------Fim da round Key #{indexRoundKeyQueEstaSendoGerada}--------------------------------");
                 keySchedule.Add(roundKeyNova);
+                
+                Console.WriteLine($"---------------------Fim da round Key #{indexRoundKeyQueEstaSendoGerada}--------------------------------");
             }
-
             return keySchedule;
         }
 
@@ -120,6 +107,126 @@ namespace AES
             return resultado;
         }
 
+        private static byte[] ObterRoundConstant(int roundKeyQueEstaSendoGerada)
+        {
+            //index da roundKey começa em 1
+            roundKeyQueEstaSendoGerada--;
+            var roundConstant = new byte[4]
+            {
+                Constantes.RoundConstant[roundKeyQueEstaSendoGerada],
+                0,
+                0,
+                0
+            };
+            Console.WriteLine($"Resultado roundConstant #{roundKeyQueEstaSendoGerada} - HEX: {Convert.ToHexString(roundConstant)}");
+            return roundConstant;
+        }
+        
+        private static byte[] XorBytes(byte[] a, byte[]b)
+        {
+            var resultado = new byte[4];
+            for (var i = 0; i < a.Length; i++)
+            {
+                resultado[i] = (byte)(a[i] ^ b[i]);
+            }
+            return resultado;
+        }
+
+        #region Criptografia
+        
+        private static void Criptografar(IList<byte[,]> blocos, IList<List<byte[]>> keySchedule)
+        {
+            var matrizResultado = new byte[4,4];
+            var cifra = new List<byte>();
+            foreach (var x in blocos.Select((value, index) => new { value, index }))
+            {
+                var bloco = x.value;
+                Console.WriteLine($"************************ Criptografando Bloco #{x.index + 1} ************************");
+                matrizResultado = XorBytes(bloco, keySchedule[0]);
+                for (int i = 1; i < 10; i++)
+                {
+                    matrizResultado = SubBytes(matrizResultado);
+                    LogarMatrizEstado($"************************ SubBytes - Round {i} ************************",matrizResultado);
+                    matrizResultado = ShiftRows(matrizResultado);
+                    LogarMatrizEstado($"************************ ShiftRows - Round {i} ************************",matrizResultado);
+                    matrizResultado = MixColumns(matrizResultado);
+                    LogarMatrizEstado($"************************ MixedColumns - Round {i} ************************",matrizResultado);
+                    matrizResultado = XorBytes(matrizResultado, keySchedule[i]);
+                    LogarMatrizEstado($"************************ AddRoundKey - Round {i} ************************",matrizResultado);
+                }
+
+                matrizResultado = SubBytes(matrizResultado);
+                LogarMatrizEstado("************************ SubBytes - Round 10 ************************", matrizResultado);
+                matrizResultado = ShiftRows(matrizResultado);
+                LogarMatrizEstado("************************ ShiftRows - Round 10 ************************", matrizResultado);
+                matrizResultado = XorBytes(matrizResultado, keySchedule[10]);
+                LogarMatrizEstado($"************************ AddRoundKey - Round 10 ************************",matrizResultado);
+                Console.WriteLine($"************************ Fim criptografia Bloco #{x.index + 1} ************************");
+
+                cifra.AddRange(ObterCifra(matrizResultado));
+            }
+
+            using (var file = File.Create(@"C:\Users\Eliton\Desktop\cipher.txt"))
+            {
+                file.Write(cifra.ToArray());
+                file.Flush();
+                file.Close();
+            }
+            
+        }
+        
+        private static byte[,] XorBytes(byte[,] matrizEstado, IList<byte[]> roundKeyAtual)
+        {
+            var matrizEstadoResultado = new byte[4,4];
+            for (var i = 0; i < matrizEstado.GetLength(0); i++)
+            {
+                for (int j = 0; j < matrizEstado.GetLength(1); j++)
+                {
+                    var wordMomentoKeySchedule = roundKeyAtual[i];
+                    var primeiroElemento = matrizEstado[j, i];
+                    var segundoElemento = wordMomentoKeySchedule[j];
+                    var byteDoMomento = (byte)(primeiroElemento ^ segundoElemento);
+                    
+                    matrizEstadoResultado[j, i] = byteDoMomento;
+                }
+            }
+
+            return matrizEstadoResultado;
+        }
+        
+        private static byte[,] SubBytes(byte[,] matrizEstado)
+        {
+            var matrizEstadoResultante = new byte[4,4];
+            for (int i = 0; i < matrizEstado.GetLength(0); i++)
+            {
+                for (int j = 0; j < matrizEstado.GetLength(1); j++)
+                {
+                    var byteIteradoDaMatrizEstado = matrizEstado[i,j];
+                    var (intQuatroBitsMaisSignificativos, intQuatroBitsMenosSignificativos) = ObterBitMaisEMenosSignificativo(byteIteradoDaMatrizEstado);
+                    var byteParaSubstituir = Constantes.MatrizSBox[intQuatroBitsMaisSignificativos, intQuatroBitsMenosSignificativos];
+
+                    matrizEstadoResultante[i, j] = byteParaSubstituir;
+                }
+            }
+            return matrizEstadoResultante;
+        }
+        
+        private static byte[] SubWord(byte[] rotWord)
+        {
+            Span<byte> subWord = new byte[4];
+            for (int i = 0; i < rotWord.Length; i++)
+            {
+                var byteIteradoDaRotWord = rotWord[i];
+                (var intQuatroBitsMaisSignificativos, var intQuatroBitsMenosSignificativos) = ObterBitMaisEMenosSignificativo(byteIteradoDaRotWord);
+
+                var byteParaSubstituir = Constantes.MatrizSBox[intQuatroBitsMaisSignificativos, intQuatroBitsMenosSignificativos];
+                subWord[i] = byteParaSubstituir;
+            }
+
+            var subWordArray = subWord.ToArray();
+            return subWordArray;
+        }
+        
         private static byte[,] ShiftRows(byte[,] matrizEstado)
         {
             byte[,] matrizEstadoResultado = (byte[,])matrizEstado.Clone();
@@ -147,94 +254,6 @@ namespace AES
             return matrizEstadoResultado;
         }
         
-        private static byte[] SubWord(byte[] rotWord)
-        {
-            Span<byte> subWord = new byte[4];
-            for (int i = 0; i < rotWord.Length; i++)
-            {
-                var byteIteradoDaRotWord = rotWord[i];
-                (var intQuatroBitsMaisSignificativos, var intQuatroBitsMenosSignificativos) = ObterBitMaisEMenosSignificativo(byteIteradoDaRotWord);
-
-                var byteParaSubstituir = Constantes.MatrizSBox[intQuatroBitsMaisSignificativos, intQuatroBitsMenosSignificativos];
-                subWord[i] = byteParaSubstituir;
-            }
-
-            var subWordArray = subWord.ToArray();
-            return subWordArray;
-        }
-        
-        private static byte[,] SubBytes(byte[,] matrizEstado)
-        {
-            var matrizEstadoResultante = new byte[4,4];
-            for (int i = 0; i < matrizEstado.GetLength(0); i++)
-            {
-                for (int j = 0; j < matrizEstado.GetLength(1); j++)
-                {
-                    var byteIteradoDaMatrizEstado = matrizEstado[i,j];
-                    (var intQuatroBitsMaisSignificativos, var intQuatroBitsMenosSignificativos) = ObterBitMaisEMenosSignificativo(byteIteradoDaMatrizEstado);
-                    var byteParaSubstituir = Constantes.MatrizSBox[intQuatroBitsMaisSignificativos, intQuatroBitsMenosSignificativos];
-
-                    matrizEstadoResultante[i, j] = byteParaSubstituir;
-                }
-            }
-            return matrizEstadoResultante;
-        }
-
-        private static byte[] ObterRoundConstant(int roundKeyQueEstaSendoGerada)
-        {
-            //index da roundKey começa em 1
-            roundKeyQueEstaSendoGerada--;
-            var roundConstant = new byte[4]
-            {
-                Constantes.RoundConstant[roundKeyQueEstaSendoGerada],
-                0,
-                0,
-                0
-            };
-            Console.WriteLine($"Resultado roundConstant #{roundKeyQueEstaSendoGerada} - HEX: {Convert.ToHexString(roundConstant)}");
-            return roundConstant;
-        }
-        
-        private static byte[] XorBytes(byte[] a, byte[]b)
-        {
-            var resultado = new byte[4];
-            for (var i = 0; i < a.Length; i++)
-            {
-                resultado[i] = (byte)(a[i] ^ b[i]);
-            }
-            return resultado;
-        }
-
-        private static byte[,] XorBytes(byte[,] matrizEstado, IList<byte[]> roundKeyAtual)
-        {
-            var matrizEstadoResultado = new byte[4,4];
-            for (var i = 0; i < matrizEstado.GetLength(0); i++)
-            {
-                for (int j = 0; j < matrizEstado.GetLength(1); j++)
-                {
-                    var wordMomentoKeySchedule = roundKeyAtual[i];
-                    var primeiroElemento = matrizEstado[j, i];
-                    var segundoElemento = wordMomentoKeySchedule[j];
-                    var byteDoMomento = (byte)(primeiroElemento ^ segundoElemento);
-                    
-                    matrizEstadoResultado[j, i] = byteDoMomento;
-                }
-            }
-
-            return matrizEstadoResultado;
-        }
-
-        private static (int BitMaisSignificativo, int BitMenosSignificativo ) ObterBitMaisEMenosSignificativo(byte byteParaObterBitMaisEMenosSignificativo)
-        {
-            Span<byte> spanComByte = new byte[]{ byteParaObterBitMaisEMenosSignificativo };
-            var byteHexa = Convert.ToHexString(spanComByte);
-            
-            var intQuatroBitsMaisSignificativos = int.Parse(byteHexa[0].ToString(), NumberStyles.HexNumber);
-            var intQuatroBitsMenosSignificativos = int.Parse(byteHexa[1].ToString(), NumberStyles.HexNumber);
-
-            return (intQuatroBitsMaisSignificativos, intQuatroBitsMenosSignificativos);
-        }
-
         private static byte[,] MixColumns(byte[,] matrizEstado)
         {
             byte[,] matrizResultado = new byte[matrizEstado.GetLength(0), matrizEstado.GetLength(1)];
@@ -267,11 +286,9 @@ namespace AES
                                                MultiplicacaoGalois(r3, 1) ^
                                                MultiplicacaoGalois(r4, 2));
             }
-            
-                        
             return matrizResultado;
         }
-
+        
         private static byte MultiplicacaoGalois(byte operacaoMomento, byte constanteDaTabelaMultiplicacao)
         {
             if (operacaoMomento == 0 || constanteDaTabelaMultiplicacao == 0)
@@ -298,8 +315,18 @@ namespace AES
             var somaDosResultadosBitMaisMenosSignificativo = ObterBitMaisEMenosSignificativo((byte)somaDosResultados);
             return Constantes.MatrizE[somaDosResultadosBitMaisMenosSignificativo.BitMaisSignificativo, somaDosResultadosBitMaisMenosSignificativo.BitMenosSignificativo];
         }
+        #endregion
         
-     
+        private static (int BitMaisSignificativo, int BitMenosSignificativo ) ObterBitMaisEMenosSignificativo(byte byteParaObterBitMaisEMenosSignificativo)
+        {
+            Span<byte> spanComByte = new byte[]{ byteParaObterBitMaisEMenosSignificativo };
+            var byteHexa = Convert.ToHexString(spanComByte);
+            
+            var intQuatroBitsMaisSignificativos = int.Parse(byteHexa[0].ToString(), NumberStyles.HexNumber);
+            var intQuatroBitsMenosSignificativos = int.Parse(byteHexa[1].ToString(), NumberStyles.HexNumber);
+
+            return (intQuatroBitsMaisSignificativos, intQuatroBitsMenosSignificativos);
+        }
 
         private static void LogarRoundKey(List<byte[]> roundKey)
         {
@@ -325,6 +352,23 @@ namespace AES
                 Console.WriteLine("");
             }
         }
+
+        private static byte[] ObterCifra(byte[,] matrizEstado)
+        {
+            var byteCifraSaida = new List<byte>(16);
+
+            for (int i = 0; i < matrizEstado.GetLength(0); i++)
+            {
+                var dimensao = new byte[4];
+                for (int j = 0; j < matrizEstado.GetLength(1); j++)
+                {
+                    dimensao[j] = matrizEstado[j, i];
+                }
+                byteCifraSaida.AddRange(dimensao);
+            }
+            return byteCifraSaida.ToArray();
+        }
+        
     }    
 }
 
