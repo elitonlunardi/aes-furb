@@ -1,4 +1,5 @@
-﻿using System.Globalization;
+﻿//Author: Éliton Lunardi
+using System.Globalization;
 
 namespace AES
 {
