@@ -1,9 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-
-namespace AES;
+﻿namespace AES;
 
 public class Chave : IChave
 {
@@ -40,14 +35,20 @@ public class Chave : IChave
             Composicao = entrada.Split(',')
                 .Select(w => Convert.ToByte(w))
                 .ToList();
-                 
+
+            if (Composicao.Count != 16)
+            {
+                throw new ArgumentException("Chave precisa ter 16 bytes.");
+            }
+
             var hex = Convert.ToHexString(Composicao.ToArray());
 
-            Console.WriteLine($"Chave de entrada - HEX: {hex}");
+            //Console.WriteLine($"Chave de entrada - HEX: {hex}");
         }
         catch (Exception e)
         {
-            Console.WriteLine($"Entrada inválida. {e.Message}");
+            //Console.WriteLine($"Entrada inválida. {e.Message}");
+            throw;
         }
     }
 
