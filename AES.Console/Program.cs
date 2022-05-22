@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Net;
 using System.Text;
 
 namespace AES
@@ -12,7 +11,8 @@ namespace AES
     {
         public static void Main(string[] args)
         {
-            var conteudoUsuario = "DESENVOLVIMENTO!";
+            // DESENVOLVIMENTO!
+            var conteudoUsuario = "DESENVOLVIMENTO!DESENVOLVIMENTO!";
             var entradaUsuario = new ConteudoCifrar(Encoding.ASCII.GetBytes(conteudoUsuario));
             
             LogarMatrizEstado("", entradaUsuario.Blocos[0]);
